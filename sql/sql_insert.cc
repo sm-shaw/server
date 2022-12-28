@@ -920,7 +920,8 @@ bool mysql_insert(THD *thd, TABLE_LIST *table_list,
     {
       create_lookup_handler= true;
       table->file->extra(HA_EXTRA_IGNORE_DUP_KEY);
-      if (table->file->ha_table_flags() & HA_DUPLICATE_POS)
+      if (table->file->ha_table_flags() & HA_DUPLICATE_POS ||
+          table->s->long_unique_table)
       {
         if (table->file->ha_rnd_init_with_error(0))
           goto abort;
@@ -1189,7 +1190,8 @@ values_loop_end:
     if (duplic != DUP_ERROR || ignore)
     {
       table->file->extra(HA_EXTRA_NO_IGNORE_DUP_KEY);
-      if (table->file->ha_table_flags() & HA_DUPLICATE_POS)
+      if (table->file->ha_table_flags() & HA_DUPLICATE_POS ||
+          table->s->long_unique_table)
         table->file->ha_rnd_end();
     }
 
