@@ -290,6 +290,12 @@ public:
   Item_func_concat(THD *thd, Item *a, Item *b): Item_str_func(thd, a, b) {}
   String *val_str(String *) override;
   bool fix_length_and_dec() override;
+  const Schema *schema() const { return &mariadb_schema; }
+  void print(String *str, enum_query_type query_type)
+  {
+    print_sql_mode_qualified_name(str, query_type);
+    print_args_parenthesized(str, query_type);
+  }
   LEX_CSTRING func_name_cstring() const override
   {
     static LEX_CSTRING name= {STRING_WITH_LEN("concat") };
@@ -314,6 +320,18 @@ public:
    :Item_func_concat(thd, a, b)
   { }
   String *val_str(String *) override;
+  const Schema *schema() const { return &oracle_schema_ref; }
+  void print(String *str, enum_query_type query_type)
+  {
+    if (query_type & QT_FOR_FRM)
+    {
+      // 10.3 downgrade compatibility for FRM
+      str->append(STRING_WITH_LEN("concat_operator_oracle"));
+    }
+    else
+      print_sql_mode_qualified_name(str, query_type);
+    print_args_parenthesized(str, query_type);
+  }
   LEX_CSTRING func_name_cstring() const override
   {
     static LEX_CSTRING name= {STRING_WITH_LEN("concat_operator_oracle") };
@@ -391,12 +409,8 @@ public:
   String *val_str(String *to) override { return val_str_internal(to, NULL); };
   bool fix_length_and_dec() override;
   String *val_str_internal(String *str, String *empty_string_for_null);
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("replace") };
-    return name;
-  }
-  Item *get_copy(THD *thd) override
+  const char *func_name() const { return "replace"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_replace>(thd, this); }
 };
 
@@ -407,14 +421,9 @@ class Item_func_replace_oracle :public Item_func_replace
 public:
   Item_func_replace_oracle(THD *thd, Item *org, Item *find, Item *replace):
     Item_func_replace(thd, org, find, replace) {}
-  String *val_str(String *to) override
-  { return val_str_internal(to, &tmp_emtpystr); };
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("replace_oracle") };
-    return name;
-  }
-  Item *get_copy(THD *thd) override
+  String *val_str(String *to) { return val_str_internal(to, &tmp_emtpystr); };
+  const char *func_name() const { return "replace_oracle"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_replace_oracle>(thd, this); }
 };
 
@@ -576,14 +585,10 @@ public:
   Item_func_substr(THD *thd, Item *a, Item *b): Item_str_func(thd, a, b) {}
   Item_func_substr(THD *thd, Item *a, Item *b, Item *c):
     Item_str_func(thd, a, b, c) {}
-  String *val_str(String *) override;
-  bool fix_length_and_dec() override;
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("substr") };
-    return name;
-  }
-  Item *get_copy(THD *thd) override
+  String *val_str(String *);
+  bool fix_length_and_dec();
+  const char *func_name() const { return "substr"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_substr>(thd, this); }
 };
 
@@ -599,18 +604,14 @@ public:
     Item_func_substr(thd, a, b) {}
   Item_func_substr_oracle(THD *thd, Item *a, Item *b, Item *c):
     Item_func_substr(thd, a, b, c) {}
-  bool fix_length_and_dec() override
+  bool fix_length_and_dec()
   {
     bool res= Item_func_substr::fix_length_and_dec();
     set_maybe_null();
     return res;
   }
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("substr_oracle") };
-    return name;
-  }
-  Item *get_copy(THD *thd) override
+  const char *func_name() const { return "substr_oracle"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_substr_oracle>(thd, this); }
 };
 
@@ -656,25 +657,17 @@ protected:
   {
     return trimmed_value(res, 0, res->length());
   }
-  virtual LEX_CSTRING func_name_ext() const
-  {
-    static LEX_CSTRING name_ext= {STRING_WITH_LEN("") };
-    return name_ext;
-  }
+  virtual const char *func_name_ext() const { return ""; }
 public:
   Item_func_trim(THD *thd, Item *a, Item *b): Item_str_func(thd, a, b) {}
   Item_func_trim(THD *thd, Item *a): Item_str_func(thd, a) {}
-  Sql_mode_dependency value_depends_on_sql_mode() const override;
-  String *val_str(String *) override;
-  bool fix_length_and_dec() override;
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("trim") };
-    return name;
-  }
-  void print(String *str, enum_query_type query_type) override;
-  virtual LEX_CSTRING mode_name() const { return { "both", 4}; }
-  Item *get_copy(THD *thd) override
+  Sql_mode_dependency value_depends_on_sql_mode() const;
+  String *val_str(String *);
+  bool fix_length_and_dec();
+  const char *func_name() const { return "trim"; }
+  void print(String *str, enum_query_type query_type);
+  virtual const char *mode_name() const { return "both"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_trim>(thd, this); }
 };
 
@@ -684,21 +677,13 @@ class Item_func_trim_oracle :public Item_func_trim
 protected:
   String *make_empty_result(String *str) override
   { null_value= 1; return NULL; }
-  LEX_CSTRING func_name_ext() const override
-  {
-    static LEX_CSTRING name_ext= {STRING_WITH_LEN("_oracle") };
-    return name_ext;
-  }
+  const char *func_name_ext() const { return "_oracle"; }
 public:
   Item_func_trim_oracle(THD *thd, Item *a, Item *b):
     Item_func_trim(thd, a, b) {}
   Item_func_trim_oracle(THD *thd, Item *a): Item_func_trim(thd, a) {}
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("trim_oracle") };
-    return name;
-  }
-  bool fix_length_and_dec() override
+  const char *func_name() const { return "trim_oracle"; }
+  bool fix_length_and_dec()
   {
     bool res= Item_func_trim::fix_length_and_dec();
     set_maybe_null();
@@ -718,15 +703,10 @@ public:
   {
     return Item_func::value_depends_on_sql_mode();
   }
-  String *val_str(String *) override;
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("ltrim") };
-    return name;
-  }
-  LEX_CSTRING mode_name() const override
-  { return { STRING_WITH_LEN("leading") }; }
-  Item *get_copy(THD *thd) override
+  String *val_str(String *);
+  const char *func_name() const { return "ltrim"; }
+  const char *mode_name() const { return "leading"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_ltrim>(thd, this); }
 };
 
@@ -736,21 +716,13 @@ class Item_func_ltrim_oracle :public Item_func_ltrim
 protected:
   String *make_empty_result(String *str) override
   { null_value= 1; return NULL; }
-  LEX_CSTRING func_name_ext() const override
-  {
-    static LEX_CSTRING name_ext= {STRING_WITH_LEN("_oracle") };
-    return name_ext;
-  }
+  const char *func_name_ext() const { return "_oracle"; }
 public:
   Item_func_ltrim_oracle(THD *thd, Item *a, Item *b):
     Item_func_ltrim(thd, a, b) {}
   Item_func_ltrim_oracle(THD *thd, Item *a): Item_func_ltrim(thd, a) {}
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("ltrim_oracle") };
-    return name;
-  }
-  bool fix_length_and_dec() override
+  const char *func_name() const { return "ltrim_oracle"; }
+  bool fix_length_and_dec()
   {
     bool res= Item_func_ltrim::fix_length_and_dec();
     set_maybe_null();
@@ -766,15 +738,10 @@ class Item_func_rtrim :public Item_func_trim
 public:
   Item_func_rtrim(THD *thd, Item *a, Item *b): Item_func_trim(thd, a, b) {}
   Item_func_rtrim(THD *thd, Item *a): Item_func_trim(thd, a) {}
-  String *val_str(String *) override;
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("rtrim") };
-    return name;
-  }
-  LEX_CSTRING mode_name() const override
-  { return { STRING_WITH_LEN("trailing") }; }
-  Item *get_copy(THD *thd) override
+  String *val_str(String *);
+  const char *func_name() const { return "rtrim"; }
+  const char *mode_name() const { return "trailing"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_rtrim>(thd, this); }
 };
 
@@ -784,21 +751,13 @@ class Item_func_rtrim_oracle :public Item_func_rtrim
 protected:
   String *make_empty_result(String *str) override
   { null_value= 1; return NULL; }
-  LEX_CSTRING func_name_ext() const override
-  {
-    static LEX_CSTRING name_ext= {STRING_WITH_LEN("_oracle") };
-    return name_ext;
-  }
+  const char *func_name_ext() const { return "_oracle"; }
 public:
   Item_func_rtrim_oracle(THD *thd, Item *a, Item *b):
     Item_func_rtrim(thd, a, b) {}
   Item_func_rtrim_oracle(THD *thd, Item *a): Item_func_rtrim(thd, a) {}
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("rtrim_oracle") };
-    return name;
-  }
-  bool fix_length_and_dec() override
+  const char *func_name() const { return "rtrim_oracle"; }
+  bool fix_length_and_dec()
   {
     bool res= Item_func_rtrim::fix_length_and_dec();
     set_maybe_null();
@@ -984,12 +943,8 @@ class Item_func_decode :public Item_func_encode
 {
 public:
   Item_func_decode(THD *thd, Item *a, Item *seed_arg): Item_func_encode(thd, a, seed_arg) {}
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("decode") };
-    return name;
-  }
-  Item *get_copy(THD *thd) override
+  const char *func_name() const { return "decode"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_decode>(thd, this); }
 protected:
   void crypto_transform(String *) override;
@@ -1354,7 +1309,7 @@ public:
     Item_str_func(thd, arg1, arg2, arg3) {}
   Item_func_pad(THD *thd, Item *arg1, Item *arg2):
     Item_str_func(thd, arg1, arg2) {}
-  bool fix_length_and_dec() override;
+  bool fix_length_and_dec();
 };
 
 
@@ -1365,14 +1320,10 @@ public:
     Item_func_pad(thd, arg1, arg2, arg3) {}
   Item_func_rpad(THD *thd, Item *arg1, Item *arg2):
     Item_func_pad(thd, arg1, arg2) {}
-  String *val_str(String *) override;
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("rpad") };
-    return name;
-  }
-  Sql_mode_dependency value_depends_on_sql_mode() const override;
-  Item *get_copy(THD *thd) override
+  String *val_str(String *);
+  const char *func_name() const { return "rpad"; }
+  Sql_mode_dependency value_depends_on_sql_mode() const;
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_rpad>(thd, this); }
 };
 
@@ -1386,18 +1337,14 @@ public:
     Item_func_rpad(thd, arg1, arg2, arg3) {}
   Item_func_rpad_oracle(THD *thd, Item *arg1, Item *arg2):
     Item_func_rpad(thd, arg1, arg2) {}
-  bool fix_length_and_dec() override
+  bool fix_length_and_dec()
   {
     bool res= Item_func_rpad::fix_length_and_dec();
     set_maybe_null();
     return res;
   }
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("rpad_oracle") };
-    return name;
-  }
-  Item *get_copy(THD *thd) override
+  const char *func_name() const { return "rpad_oracle"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_rpad_oracle>(thd, this); }
 };
 
@@ -1409,13 +1356,9 @@ public:
     Item_func_pad(thd, arg1, arg2, arg3) {}
   Item_func_lpad(THD *thd, Item *arg1, Item *arg2):
     Item_func_pad(thd, arg1, arg2) {}
-  String *val_str(String *) override;
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("lpad") };
-    return name;
-  }
-  Item *get_copy(THD *thd) override
+  String *val_str(String *);
+  const char *func_name() const { return "lpad"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_lpad>(thd, this); }
 };
 
@@ -1429,18 +1372,14 @@ public:
     Item_func_lpad(thd, arg1, arg2, arg3) {}
   Item_func_lpad_oracle(THD *thd, Item *arg1, Item *arg2):
     Item_func_lpad(thd, arg1, arg2) {}
-  bool fix_length_and_dec() override
+  bool fix_length_and_dec()
   {
     bool res= Item_func_lpad::fix_length_and_dec();
     set_maybe_null();
     return res;
   }
-  LEX_CSTRING func_name_cstring() const override
-  {
-    static LEX_CSTRING name= {STRING_WITH_LEN("lpad_oracle") };
-    return name;
-  }
-  Item *get_copy(THD *thd) override
+  const char *func_name() const { return "lpad_oracle"; }
+  Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_lpad_oracle>(thd, this); }
 };
 

@@ -11,6 +11,8 @@
 # Save the initial number of concurrent sessions.
 --source include/count_sessions.inc
 
+SET @saved_frequency = @@GLOBAL.innodb_purge_rseg_truncate_frequency;
+SET GLOBAL innodb_purge_rseg_truncate_frequency = 1;
 let $old_lock_wait_timeout = `SELECT @@global.lock_wait_timeout`;
 
 --echo #-----------------------------------------------------------------------
@@ -50,6 +52,7 @@ FROM information_schema.processlist WHERE id = @con1_id;
 # con1 uses @@global.lock_wait_timeout
 
 BACKUP STAGE END;
+--source ../suite/innodb/include/wait_all_purged.inc
 
 --connection con1
 --echo # The connection default has removed the backup lock.
@@ -384,3 +387,4 @@ SET GLOBAL lock_wait_timeout = $old_lock_wait_timeout;
 
 --connection default
 --source include/wait_until_count_sessions.inc
+SET GLOBAL innodb_purge_rseg_truncate_frequency = @saved_frequency;
