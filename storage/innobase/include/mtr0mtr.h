@@ -72,7 +72,7 @@ struct mtr_t {
   void start();
 
   /** Commit the mini-transaction. */
-  void commit();
+void __attribute__ ((noinline)) commit();
 
   /** Release latches of unmodified buffer pages.
   @param begin   first slot to release
@@ -105,7 +105,7 @@ struct mtr_t {
   This is to be used at log_checkpoint().
   @param checkpoint_lsn   the log sequence number of a checkpoint, or 0
   @return current LSN */
-  lsn_t commit_files(lsn_t checkpoint_lsn= 0);
+  ATTRIBUTE_COLD lsn_t commit_files(lsn_t checkpoint_lsn= 0);
 
   /** @return mini-transaction savepoint (current size of m_memo) */
   ulint get_savepoint() const
@@ -777,4 +777,38 @@ private:
   fil_space_t *m_freed_space= nullptr;
   /** set of freed page ids */
   range_set *m_freed_pages= nullptr;
+};
+
+struct lsn_spinlock {
+alignas(CPU_LEVEL1_DCACHE_LINESIZE) std::atomic<bool> lock_ = {0};
+void __attribute__ ((noinline)) lsn_delay() noexcept {
+        ulint   i;
+        for (i = 0; i < 300; i++) {
+        __asm__ __volatile__ ("pause":::"memory");
+        }
+}
+
+__attribute__((noinline)) void lsn_lock() noexcept {
+    for (;;) {
+      if (!lock_.exchange(true, std::memory_order_acquire)) {
+        return;
+      }
+      while (lock_.load(std::memory_order_relaxed)) {
+        __asm__ __volatile__ ("pause":::"memory");
+      }
+    }
+  }
+
+__attribute__((noinline))  bool lsn_try_lock() noexcept {
+    return !lock_.load(std::memory_order_relaxed) &&
+           !lock_.exchange(true, std::memory_order_acquire);
+  }
+
+__attribute__((noinline)) void lsn_unlock() noexcept {
+    lock_.store(false, std::memory_order_release);
+  }
+
+__attribute__((noinline)) static void lsn_yield() noexcept {
+    std::this_thread::yield();
+}
 };
