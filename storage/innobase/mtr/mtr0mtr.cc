@@ -329,6 +329,8 @@ lsn_spinlock lsnlck;
 /** Commit a mini-transaction. */
 void __attribute__((noinline)) mtr_t::commit()
 {
+  ulint delay_count= 0;
+  ulint delay_iterations= 50;
   ut_ad(is_active());
   ut_ad(!is_inside_ibuf());
 
@@ -349,7 +351,12 @@ void __attribute__((noinline)) mtr_t::commit()
     /* do_write is major point of contention */
     while (lsnlck.lsn_try_lock() != true)
     {
-    lsnlck.lsn_delay();
+    delay_count++;
+    if ((delay_count == 10) && delay_iterations <= 300) {
+    delay_count= 0;
+    delay_iterations += 50;
+    }
+    lsnlck.lsn_delay(delay_iterations);
     } 
     std::pair<lsn_t,page_flush_ahead> lsns{do_write()};
     lsnlck.lsn_unlock();
