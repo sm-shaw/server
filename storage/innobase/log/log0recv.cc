@@ -189,7 +189,7 @@ public:
     size_t size;
     const byte *page= block.page.zip.data;
     if (UNIV_LIKELY_NULL(page))
-      size= (UNIV_ZIP_SIZE_MIN >> 1) << block.page.zip.ssize;
+      size= (UNIV_ZIP_SIZE_MIN >> 1) << block.page.zip.ssize();
     else
     {
       page= block.page.frame;
@@ -319,7 +319,7 @@ page_corrupted:
       switch (b & 0x70) {
       case EXTENDED:
         if (UNIV_UNLIKELY(block.page.id().page_no() < 3 ||
-                          block.page.zip.ssize))
+                          block.page.zip.ssize()))
           goto record_corrupted;
         static_assert(INIT_ROW_FORMAT_REDUNDANT == 0, "compatiblity");
         static_assert(INIT_ROW_FORMAT_DYNAMIC == 1, "compatibility");
@@ -3137,7 +3137,7 @@ set_start_lsn:
 			buf_zip_decompress(block, false);
 		}
 
-		buf_block_modify_clock_inc(block);
+		block->invalidate();
 		mysql_mutex_lock(&log_sys.flush_order_mutex);
 		buf_flush_note_modification(block, start_lsn, end_lsn);
 		mysql_mutex_unlock(&log_sys.flush_order_mutex);
