@@ -2361,14 +2361,12 @@ void
 innobase_mysql_print_thd(
 /*=====================*/
 	FILE*	f,		/*!< in: output stream */
-	THD*	thd,		/*!< in: MySQL THD object */
-	uint	max_query_len)	/*!< in: max query length to print, or 0 to
-				use the default max length */
+	THD*	thd)		/*!< in: MySQL THD object */
 {
-	char	buffer[1024];
+	char	buffer[3072];
 
 	fputs(thd_get_error_context_description(thd, buffer, sizeof buffer,
-						max_query_len), f);
+						0), f);
 	putc('\n', f);
 }
 
@@ -12913,7 +12911,7 @@ int create_table_info_t::create_table(bool create_fk)
 					    " on table %s. Please check"
 					    " the index definition to"
 					    " make sure it is of correct"
-					    " type\n",
+					    " type",
 					    FTS_DOC_ID_INDEX_NAME,
 					    m_table->name.m_name);
 
@@ -12985,7 +12983,7 @@ int create_table_info_t::create_table(bool create_fk)
 			"Create table '%s' with foreign key constraint"
 			" failed. There is no index in the referenced"
 			" table where the referenced columns appear"
-			" as the first columns.\n", m_table_name);
+			" as the first columns.", m_table_name);
 		break;
 
 	case DB_CHILD_NO_INDEX:
@@ -12995,7 +12993,7 @@ int create_table_info_t::create_table(bool create_fk)
 			"Create table '%s' with foreign key constraint"
 			" failed. There is no index in the referencing"
 			" table where referencing columns appear"
-			" as the first columns.\n", m_table_name);
+			" as the first columns.", m_table_name);
 		break;
 	case DB_NO_FK_ON_S_BASE_COL:
 		push_warning_printf(
@@ -13004,7 +13002,7 @@ int create_table_info_t::create_table(bool create_fk)
 			"Create table '%s' with foreign key constraint"
 			" failed. Cannot add foreign key constraint"
 			" placed on the base column of stored"
-			" column. \n",
+			" column. ",
 			m_table_name);
 	default:
 		break;
@@ -13802,7 +13800,6 @@ int ha_innobase::delete_table(const char *name)
   if (err != DB_SUCCESS)
   {
 err_exit:
-    trx->dict_operation_lock_mode= false;
     trx->rollback();
     switch (err) {
     case DB_CANNOT_DROP_CONSTRAINT:
@@ -13824,7 +13821,7 @@ err_exit:
       dict_table_close(table_stats, true, thd, mdl_table);
     if (index_stats)
       dict_table_close(index_stats, true, thd, mdl_index);
-    dict_sys.unlock();
+    row_mysql_unlock_data_dictionary(trx);
     if (trx != parent_trx)
       trx->free();
     DBUG_RETURN(convert_error_code_to_mysql(err, 0, NULL));
@@ -15273,7 +15270,7 @@ ha_innobase::optimize(
 		} else {
 			push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 					    uint(err),
-				"InnoDB: Cannot defragment table %s: returned error code %d\n",
+				"InnoDB: Cannot defragment table %s: returned error code %d",
 				m_prebuilt->table->name.m_name, err);
 
 			if(err == ER_SP_ALREADY_EXISTS) {
@@ -21081,8 +21078,7 @@ innodb_compression_algorithm_validate(
 	if (compression_algorithm == PAGE_LZ4_ALGORITHM) {
 		push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 				    HA_ERR_UNSUPPORTED,
-				    "InnoDB: innodb_compression_algorithm = %lu unsupported.\n"
-				    "InnoDB: liblz4 is not installed. \n",
+				    "InnoDB: innodb_compression_algorithm = %lu unsupported. liblz4 is not installed.",
 				    compression_algorithm);
 		DBUG_RETURN(1);
 	}
@@ -21092,8 +21088,7 @@ innodb_compression_algorithm_validate(
 	if (compression_algorithm == PAGE_LZO_ALGORITHM) {
 		push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 				    HA_ERR_UNSUPPORTED,
-				    "InnoDB: innodb_compression_algorithm = %lu unsupported.\n"
-				    "InnoDB: liblzo is not installed. \n",
+				    "InnoDB: innodb_compression_algorithm = %lu unsupported. liblzo is not installed.",
 				    compression_algorithm);
 		DBUG_RETURN(1);
 	}
@@ -21103,8 +21098,7 @@ innodb_compression_algorithm_validate(
 	if (compression_algorithm == PAGE_LZMA_ALGORITHM) {
 		push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 				    HA_ERR_UNSUPPORTED,
-				    "InnoDB: innodb_compression_algorithm = %lu unsupported.\n"
-				    "InnoDB: liblzma is not installed. \n",
+				    "InnoDB: innodb_compression_algorithm = %lu unsupported. liblzma is not installed.",
 				    compression_algorithm);
 		DBUG_RETURN(1);
 	}
@@ -21114,8 +21108,7 @@ innodb_compression_algorithm_validate(
 	if (compression_algorithm == PAGE_BZIP2_ALGORITHM) {
 		push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 				    HA_ERR_UNSUPPORTED,
-				    "InnoDB: innodb_compression_algorithm = %lu unsupported.\n"
-				    "InnoDB: libbz2 is not installed. \n",
+				    "InnoDB: innodb_compression_algorithm = %lu unsupported. libbz2 is not installed.",
 				    compression_algorithm);
 		DBUG_RETURN(1);
 	}
@@ -21125,8 +21118,7 @@ innodb_compression_algorithm_validate(
 	if (compression_algorithm == PAGE_SNAPPY_ALGORITHM) {
 		push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
 				    HA_ERR_UNSUPPORTED,
-				    "InnoDB: innodb_compression_algorithm = %lu unsupported.\n"
-				    "InnoDB: libsnappy is not installed. \n",
+				    "InnoDB: innodb_compression_algorithm = %lu unsupported. libsnappy is not installed.",
 				    compression_algorithm);
 		DBUG_RETURN(1);
 	}
@@ -21409,9 +21401,7 @@ void ins_node_t::vers_update_end(row_prebuilt_t *prebuilt, bool history_row)
 if needed.
 @param[in]	size	size in bytes
 @return	aligned size */
-ulint
-buf_pool_size_align(
-	ulint	size)
+ulint buf_pool_size_align(ulint size) noexcept
 {
   const ulong	m = srv_buf_pool_chunk_unit;
   size = ut_max((size_t) size, (size_t) MYSQL_SYSVAR_NAME(buffer_pool_size).min_val);

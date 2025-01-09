@@ -3232,9 +3232,12 @@ void my_message_sql(uint error, const char *str, myf MyFlags)
                        MyFlags));
 
   DBUG_ASSERT(str != NULL);
+  DBUG_ASSERT(*str != '\0');
   DBUG_ASSERT(error != 0);
   DBUG_ASSERT((MyFlags & ~(ME_BELL | ME_ERROR_LOG | ME_ERROR_LOG_ONLY |
                            ME_NOTE | ME_WARNING | ME_FATAL)) == 0);
+
+  DBUG_ASSERT(str[strlen(str)-1] != '\n');
 
   if (MyFlags & ME_NOTE)
   {
@@ -9868,7 +9871,7 @@ static int calculate_server_uid(char *dest)
   int2store(rawbuf, mysqld_port);
   if (my_gethwaddr(rawbuf + 2))
   {
-    sql_print_error("feedback plugin: failed to retrieve the MAC address");
+    sql_print_warning("failed to retrieve the MAC address");
     return 1;
   }
 
