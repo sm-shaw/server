@@ -484,13 +484,12 @@ byte *log_decrypt_buf(const byte *iv, byte *buf, const byte *data, uint len)
 #include "mtr0log.h"
 
 /** Encrypt a log snippet
-@param iv    initialization vector
 @param tmp   temporary buffer
 @param buf   buffer to be replaced with encrypted contents
 @param end   pointer past the end of buf
 @return encrypted data bytes that follow */
-static size_t log_encrypt_buf(byte iv[MY_AES_BLOCK_SIZE],
-                              byte *&tmp, byte *buf, const byte *const end)
+static size_t log_encrypt_buf(byte *&tmp, byte *buf, const byte *const end)
+  noexcept
 {
   for (byte *l= buf; l != end; )
   {
@@ -507,22 +506,17 @@ static size_t log_encrypt_buf(byte iv[MY_AES_BLOCK_SIZE],
 
     if (b < 0x80)
     {
-      /* Add the page identifier to the initialization vector. */
       size_t idlen= mlog_decode_varint_length(*l);
       ut_ad(idlen <= 5);
       ut_ad(idlen < rlen);
-      mach_write_to_4(my_assume_aligned<4>(iv + 8), mlog_decode_varint(l));
       l+= idlen;
       rlen-= idlen;
       idlen= mlog_decode_varint_length(*l);
       ut_ad(idlen <= 5);
       ut_ad(idlen <= rlen);
-      mach_write_to_4(my_assume_aligned<4>(iv + 12), mlog_decode_varint(l));
       l+= idlen;
       rlen-= idlen;
     }
-
-    uint len;
 
     if (l + rlen > end)
     {
@@ -539,19 +533,8 @@ static size_t log_encrypt_buf(byte iv[MY_AES_BLOCK_SIZE],
       return rlen;
     }
 
-    if (!rlen)
-      continue; /* FREE_PAGE and INIT_PAGE have no payload. */
-
-    len= static_cast<uint>(rlen);
-    ut_a(MY_AES_OK == encryption_crypt(l, len, tmp, &len,
-                                       info.crypt_key, MY_AES_BLOCK_SIZE,
-                                       iv, MY_AES_BLOCK_SIZE,
-                                       ENCRYPTION_FLAG_ENCRYPT |
-                                       ENCRYPTION_FLAG_NOPAD,
-                                       LOG_DEFAULT_ENCRYPTION_KEY,
-                                       info.key_version));
-    ut_ad(len == rlen);
-    memcpy(l, tmp, rlen);
+    memcpy(tmp, l, rlen);
+    tmp+= rlen;
     l+= rlen;
   }
 
@@ -575,6 +558,34 @@ ATTRIBUTE_NOINLINE void mtr_t::encrypt()
   size_t size= 0, start_size= 0;
   m_crc= 0;
 
+  {
+    const byte *l= m_log.front()->start();
+    const byte b= *l++;
+    size_t rlen= b & 0xf;
+    if (!rlen)
+    {
+      const size_t lenlen= mlog_decode_varint_length(*l);
+      const uint32_t addlen= mlog_decode_varint(l);
+      ut_ad(addlen != MLOG_DECODE_ERROR);
+      rlen= addlen + 15 - lenlen;
+      l+= lenlen;
+    }
+    if (b < 0x80)
+    {
+      /* Add the page identifier to the initialization vector. */
+      size_t idlen= mlog_decode_varint_length(*l);
+      ut_ad(idlen <= 5);
+      ut_ad(idlen < rlen);
+      mach_write_to_4(my_assume_aligned<4>(iv + 8), mlog_decode_varint(l));
+      l+= idlen;
+      rlen-= idlen;
+      idlen= mlog_decode_varint_length(*l);
+      ut_ad(idlen <= 5);
+      ut_ad(idlen <= rlen);
+      mach_write_to_4(my_assume_aligned<4>(iv + 12), mlog_decode_varint(l));
+    }
+  }
+
   m_log.for_each_block([&](mtr_buf_t::block_t *b)
   {
     ut_ad(t - tmp + size <= srv_page_size);
@@ -582,11 +593,11 @@ ATTRIBUTE_NOINLINE void mtr_t::encrypt()
     if (!start)
     {
     parse:
-      ut_ad(t == tmp);
-      size= log_encrypt_buf(iv, t, buf, b->end());
+      //ut_ad(t == tmp);
+      size= log_encrypt_buf(t, buf, b->end());
       if (!size)
       {
-        ut_ad(t == tmp);
+        //ut_ad(t == tmp);
         start_size= 0;
       }
       else
@@ -594,7 +605,6 @@ ATTRIBUTE_NOINLINE void mtr_t::encrypt()
         start= b;
         start_size= t - tmp;
       }
-      m_crc= my_crc32c(m_crc, buf, b->end() - buf - start_size);
     }
     else if (size > b->used())
     {
@@ -608,6 +618,7 @@ ATTRIBUTE_NOINLINE void mtr_t::encrypt()
       t+= size;
       buf+= size;
       uint len= static_cast<uint>(t - tmp);
+      /* FIXME: copy more to tmp, do not encrypt yet */
       ut_a(MY_AES_OK == encryption_crypt(tmp, len, dst, &len,
                                          info.crypt_key, MY_AES_BLOCK_SIZE,
                                          iv, MY_AES_BLOCK_SIZE,
@@ -635,7 +646,10 @@ ATTRIBUTE_NOINLINE void mtr_t::encrypt()
     return true;
   });
 
-  ut_ad(t == tmp);
+
+  /* FIXME: encrypt, overwrite m_log with encrypted data */
+
+  //ut_ad(t == tmp);
   ut_ad(!start);
   ut_ad(!size);
 }
