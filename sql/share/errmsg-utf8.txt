@@ -12292,3 +12292,7 @@ ER_VECTOR_FORMAT_INVALID
         eng "Invalid vector format at offset: %d for '%-.100s'. Must be a valid JSON array of numbers."
 ER_PSEUDO_THREAD_ID_OVERWRITE
         eng "Pseudo thread id should not be modified by the client as it will be overwritten"
+ER_SEQUENCE_TABLE_HAS_TOO_FEW_ROWS
+        eng "Fewer than one row in the table"
+ER_SEQUENCE_TABLE_HAS_TOO_MANY_ROWS
+        eng "More than one row in the table"
