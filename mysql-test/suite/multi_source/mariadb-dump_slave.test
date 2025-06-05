@@ -1,8 +1,13 @@
 # Interactions with --dump-slave; based on `main.rpl_mysqldump_slave`
 
 --source include/have_log_bin.inc
+<<<<<<< Updated upstream
 --let $status_items= Slave_SQL_Running
 --let $slave_name= 'inactive'
+=======
+--let $status_items= Connection_name, Slave_SQL_State
+--let $all_slaves_status= 1
+>>>>>>> Stashed changes
 
 --connect (active_master,127.0.0.1,root,,,$SERVER_MYPORT_1)
 --connect (inactive_master,127.0.0.1,root,,,$SERVER_MYPORT_2)
@@ -12,7 +17,11 @@
 --eval CHANGE MASTER TO master_host='127.0.0.1', master_port=$SERVER_MYPORT_1, master_user='root'
 START SLAVE SQL_THREAD;
 --replace_result $SERVER_MYPORT_2 MYPORT_2
+<<<<<<< Updated upstream
 --eval CHANGE MASTER $slave_name TO master_host='127.0.0.1', master_port=$SERVER_MYPORT_2
+=======
+--eval CHANGE MASTER 'inactive' TO master_host='127.0.0.1', master_port=$SERVER_MYPORT_2
+>>>>>>> Stashed changes
 # wait for the default '' connection only
 --source include/wait_for_slave_sql_to_start.inc
 
@@ -26,16 +35,21 @@ START SLAVE SQL_THREAD;
 --echo  MYSQL_DUMP --compact --dump-slave test
 --replace_regex /MASTER_LOG_POS=[0-9]+/MASTER_LOG_POS=BINLOG_START/
 --exec $MYSQL_DUMP --compact --dump-slave test
+<<<<<<< Updated upstream
 # The 'inactive' connection should remain stopped ...
 --source include/show_slave_status.inc
 # ... while the default '' connection should restart.
 --source include/wait_for_slave_sql_to_start.inc
+=======
+--source include/show_slave_status.inc
+>>>>>>> Stashed changes
 
 --echo # MDEV-5624 mysqldump --dump-slave option does not restart the replication if the dump has failed
 --echo  MYSQL_DUMP --compact --dump-slave no_such_db
 --replace_regex /MASTER_LOG_POS=[0-9]++/MASTER_LOG_POS=BINLOG_START/
 --error 2
 --exec $MYSQL_DUMP --compact --dump-slave no_such_db
+<<<<<<< Updated upstream
 # The 'inactive' connection should remain stopped ...
 --source include/show_slave_status.inc
 # ... while the default '' connection should restart.
@@ -47,4 +61,12 @@ STOP SLAVE SQL_THREAD;
 --disconnect active_master
 --disconnect inactive_master
 --source include/wait_for_slave_sql_to_stop.inc
+=======
+--source include/show_slave_status.inc
+
+--echo # Cleanup
+RESET SLAVE 'inactive' ALL;
+--disconnect active_master
+--disconnect inactive_master
+>>>>>>> Stashed changes
 --disconnect slave

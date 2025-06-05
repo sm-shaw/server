@@ -185,7 +185,7 @@ static MYSQL_RES *get_table_name_result= NULL;
 static MEM_ROOT glob_root;
 static MYSQL_RES *routine_res, *routine_list_res;
 static size_t n_stopped_replicas= 0;
-static char (*stopped_replicas)[NAME_CHAR_LEN]= NULL;
+static char *stopped_replicas= NULL;
 
 #include <sslopt-vars.h>
 FILE *md_result_file= 0;
@@ -6099,6 +6099,8 @@ static int do_stop_slave_sql(MYSQL *mysql_con)
 {
   MYSQL_RES *slave;
   MYSQL_ROW row;
+  size_t name_size_sum= 0;
+  char* stopped_replica;
   // do_stop_slave_sql() should only be called once
   DBUG_ASSERT(!stopped_replicas);
 
@@ -6107,14 +6109,6 @@ static int do_stop_slave_sql(MYSQL *mysql_con)
                                     "SHOW ALL SLAVES STATUS" :
                                     "SHOW SLAVE STATUS"))
     return(1);
-  stopped_replicas= my_malloc(PSI_NOT_INSTRUMENTED,
-                              slave->row_count*NAME_CHAR_LEN + 1, MYF(MY_WME));
-  if (!stopped_replicas)
-  {
-    mysql_free_result(slave);
-    fputs("Error: Not enough memory to store current replica status\n", stderr);
-    return 1;
-  }
 
   /* Loop over all slaves */
   while ((row= mysql_fetch_row(slave)))
@@ -6126,7 +6120,10 @@ static int do_stop_slave_sql(MYSQL *mysql_con)
       {
         char query[160];
         if (multi_source)
+        {
+          name_size_sum+= strlen(row[0]);
           sprintf(query, "STOP SLAVE '%.80s' SQL_THREAD", row[0]);
+        }
         else
           strmov(query, "STOP SLAVE SQL_THREAD");
 
@@ -6135,11 +6132,26 @@ static int do_stop_slave_sql(MYSQL *mysql_con)
           mysql_free_result(slave);
           return 1;
         }
-        strmov(stopped_replicas[n_stopped_replicas++],
-               multi_source ? row[0] : "");
+        ++n_stopped_replicas;
       }
     }
   }
+  name_size_sum+= n_stopped_replicas; // include the '\0's
+
+  // Copy out the names of stopped replicas to reduce memory footprint
+  stopped_replica= stopped_replicas= my_malloc(PSI_NOT_INSTRUMENTED, name_size_sum, MYF(MY_WME));
+  if (!stopped_replicas)
+  {
+    mysql_free_result(slave);
+    fputs("Error: Not enough memory to store current replica status\n", stderr);
+    return 1;
+  }
+  // Loop over all replicas again
+  mysql_data_seek(slave, 0);
+  for (size_t i=0; (row= mysql_fetch_row(slave));)
+    if (row[11 + multi_source] && strcmp(row[11 + multi_source], "No"))
+      stopped_replica= strmov(stopped_replica, multi_source ? row[0] : "") + 1; // +1 for '\0'
+
   mysql_free_result(slave);
   return(0);
 }
