@@ -72,6 +72,7 @@
 #include "create_tmp_table.h"
 #include "optimizer_defaults.h"
 #include "derived_handler.h"
+#include <cmath>
 
 /*
   A key part number that means we're using a fulltext scan.
@@ -11687,7 +11688,7 @@ double recompute_join_cost_with_limit(const JOIN *join, bool skip_sorting,
          In 11.0+, that time is already included in pos->read_time)
       */
       partial_join_cost -= pos->read_time*fraction;
-      DBUG_ASSERT(partial_join_cost >= 0.0);
+      DBUG_ASSERT(is_double_zero(partial_join_cost) || partial_join_cost > 0.0);
 
       /* Add the cost of the new access method we've got: */
       partial_join_cost= COST_ADD(partial_join_cost, *first_table_cost);
