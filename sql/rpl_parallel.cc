@@ -2045,11 +2045,7 @@ rpl_parallel_thread::inuse_relaylog_refcount_update()
   inuse_relaylog *ir= accumulated_ir_last;
   if (ir)
   {
-    Relay_log_info *rli= ir->rli;
-    mysql_mutex_lock(&rli->data_lock);
-      ir->dequeued_count+= accumulated_ir_count;
-      rpl_parallel::update_workers_idle(rli);
-    mysql_mutex_unlock(&rli->data_lock);
+    ir->dequeued_count+= accumulated_ir_count;
     accumulated_ir_count= 0;
     accumulated_ir_last= NULL;
   }
@@ -3065,12 +3061,13 @@ rpl_parallel::stop_during_until()
 }
 
 
-void rpl_parallel::update_workers_idle(Relay_log_info *rli)
+bool Relay_log_info::are_worker_threads_caught_up()
 {
-  mysql_mutex_assert_owner(&rli->data_lock);
-  if (rli->last_inuse_relaylog->queued_count ==
-      rli->last_inuse_relaylog->dequeued_count)
-    rli->worker_threads_caught_up= true;
+  mysql_mutex_assert_owner(&data_lock);
+  if (!worker_threads_caught_up && (!last_inuse_relaylog ||
+      last_inuse_relaylog->queued_count == last_inuse_relaylog->dequeued_count))
+    worker_threads_caught_up= true; // Refresh
+  return worker_threads_caught_up;
 }
 
 
