@@ -51,7 +51,7 @@ public:
     ut_ad(!initialized);
     ut_d(initialized= true);
     if (spinloop)
-      pthread_mutex_init(&lock, MY_MUTEX_INIT_FAST);
+      pthread_mutex_init(&lock, nullptr);
     else
       pthread_mutex_init(&lock, nullptr);
   }

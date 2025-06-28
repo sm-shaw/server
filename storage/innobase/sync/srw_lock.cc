@@ -150,7 +150,7 @@ template<> void pthread_mutex_wrapper<true>::wr_wait() noexcept
 
   for (auto spin= srv_n_spin_wait_rounds; spin; spin--)
   {
-    srw_pause(delay);
+    srw_pause(delay); 
     if (wr_lock_try())
       return;
   }
@@ -377,21 +377,33 @@ void ssux_lock_impl<spinloop>::wr_wait(uint32_t lk) noexcept
 template void ssux_lock_impl<true>::wr_wait(uint32_t) noexcept;
 template void ssux_lock_impl<false>::wr_wait(uint32_t) noexcept;
 
+inline static std::atomic<unsigned> active_rd_wait_threads{0};
+
+constexpr unsigned kHardwareConcurrencyFallback = 8;
+
+const unsigned hardware_threads = [] {
+    unsigned n = std::thread::hardware_concurrency();
+    return (n == 0) ? kHardwareConcurrencyFallback : n;
+}();
+
 template<bool spinloop>
-void ssux_lock_impl<spinloop>::rd_wait() noexcept
-{
-  const unsigned delay= srw_pause_delay();
+void ssux_lock_impl<spinloop>::rd_wait() noexcept {
+    const unsigned delay = srw_pause_delay();
 
-  if (spinloop)
-  {
-    for (auto spin= srv_n_spin_wait_rounds; spin; spin--)
-    {
-      srw_pause(delay);
-      if (rd_lock_try())
-        return;
+    if constexpr (spinloop) {
+        unsigned active_threads = active_rd_wait_threads.fetch_add(1, std::memory_order_relaxed);
+
+        if (active_threads < hardware_threads) {
+            for (auto spin = srv_n_spin_wait_rounds; spin; --spin) {
+                srw_pause(delay);
+                if (rd_lock_try()) {
+                    active_rd_wait_threads.fetch_sub(1, std::memory_order_relaxed);
+                    return;
+                }
+            }
+        }
+        active_rd_wait_threads.fetch_sub(1, std::memory_order_relaxed);
     }
-  }
-
   /* Subscribe to writer.wake() or write.wake_all() calls by
   concurrently executing rd_wait() or writer.wr_unlock(). */
   uint32_t wl= writer.WAITER +
@@ -413,7 +425,7 @@ void ssux_lock_impl<spinloop>::rd_wait() noexcept
       lots of non-productive context switching until the wr_lock()
       is finally woken up. */
       writer.wake_all();
-    srw_pause(delay);
+     srw_pause(delay);
     wl= writer.lock.load(std::memory_order_acquire);
     ut_ad(wl);
   }
@@ -436,14 +448,12 @@ template void ssux_lock_impl<false>::rd_wait() noexcept;
 template<> void srw_lock_<true>::rd_wait() noexcept
 {
   const unsigned delay= srw_pause_delay();
-
   for (auto spin= srv_n_spin_wait_rounds; spin; spin--)
   {
-    srw_pause(delay);
+    MY_RELAX_CPU();
+  }
     if (rd_lock_try())
       return;
-  }
-
   IF_WIN(AcquireSRWLockShared(&lk), rw_rdlock(&lk));
 }
 

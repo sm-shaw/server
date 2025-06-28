@@ -72,11 +72,11 @@ struct ib_counter_t {
 	@param[in]	index	a reasonably thread-unique identifier
 	@param[in]	n	amount to be added */
 	TPOOL_SUPPRESS_TSAN void add(size_t index, Type n) {
-		index = index % N;
+/*		index = index % N;
 
 		ut_ad(index < UT_ARR_SIZE(m_counter));
 
-		m_counter[index].value += n;
+		m_counter[index].value += n; */
 	}
 
 	/* @return total value - not 100% accurate, since it is relaxed atomic*/
