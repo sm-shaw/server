@@ -6,7 +6,11 @@ permissions:
 on:
   schedule:
     - cron: '0 2 * * *'  # Runs daily at 2am UTC
-  workflow_dispatch:     # Allows manual triggering from GitHub UI
+  workflow_dispatch:
+    inputs:
+      webhook_url:
+        description: 'Webhook URL to notify on new branch'
+        required: true
 
 jobs:
   sync:
@@ -29,7 +33,9 @@ jobs:
       - name: Fetch all remotes
         run: git fetch --all
 
-      - name: Sync only new branches
+      - name: Sync only new branches and notify webhook
+        env:
+          WEBHOOK_URL: ${{ github.event.inputs.webhook_url }}
         run: |
           FORK_REMOTE=origin
           UPSTREAM_REMOTE=upstream
@@ -45,11 +51,22 @@ jobs:
               echo "➡️ New branch detected: $branch"
               git checkout -b $branch $UPSTREAM_REMOTE/$branch
 
-              # Check if branch contains workflow files
               if git ls-tree -r --name-only HEAD | grep -q '^.github/workflows/'; then
                 echo "⚠️ Branch $branch modifies workflow files. Skipping push to avoid permission errors."
               else
-                git push $FORK_REMOTE $branch
+                if git push $FORK_REMOTE $branch; then
+                  echo "✅ Pushed branch $branch successfully"
+
+                  # Send webhook if provided
+                  if [[ -n "$WEBHOOK_URL" ]]; then
+                    curl -X POST -H "Content-Type: application/json" \
+                         -d "{\"branch\":\"$branch\", \"repo\":\"sm-shaw/server\"}" \
+                         "$WEBHOOK_URL"
+                    echo "📡 Webhook sent for $branch"
+                  fi
+                else
+                  echo "⚠️ Push failed for branch $branch — skipping to avoid permission errors"
+                fi
               fi
 
               git checkout main
