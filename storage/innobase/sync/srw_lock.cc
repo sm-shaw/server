@@ -150,7 +150,7 @@ template<> void pthread_mutex_wrapper<true>::wr_wait() noexcept
 
   for (auto spin= srv_n_spin_wait_rounds; spin; spin--)
   {
-    srw_pause(delay); 
+    srw_pause(delay);
     if (wr_lock_try())
       return;
   }
