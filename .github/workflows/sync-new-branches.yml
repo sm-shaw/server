@@ -1,0 +1,50 @@
+name: Sync New Upstream Branches
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Runs daily at 2am UTC
+  workflow_dispatch:     # Allows manual triggering from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout your fork
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Git user
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+      - name: Add upstream remote
+        run: git remote add upstream https://github.com/MariaDB/server.git
+
+      - name: Fetch all remotes
+        run: git fetch --all
+
+      - name: Sync only new branches
+        run: |
+          FORK_REMOTE=origin
+          UPSTREAM_REMOTE=upstream
+
+          echo "Getting upstream branches..."
+          UPSTREAM_BRANCHES=$(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$UPSTREAM_REMOTE)
+
+          echo "Getting fork branches..."
+          FORK_BRANCHES=$(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$FORK_REMOTE)
+
+          for branch in $UPSTREAM_BRANCHES; do
+            if ! echo "$FORK_BRANCHES" | grep -Fxq "$branch"; then
+              echo "➡️ New branch detected: $branch"
+              git checkout -b $branch $UPSTREAM_REMOTE/$branch
+              git push $FORK_REMOTE $branch
+              git checkout main
+              git branch -D $branch
+            else
+              echo "✅ Branch $branch already exists in fork. Skipping."
+            fi
+          done
