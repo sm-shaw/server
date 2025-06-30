@@ -1,5 +1,8 @@
 name: Sync New Upstream Branches
 
+permissions:
+  contents: write
+
 on:
   schedule:
     - cron: '0 2 * * *'  # Runs daily at 2am UTC
@@ -41,7 +44,14 @@ jobs:
             if ! echo "$FORK_BRANCHES" | grep -Fxq "$branch"; then
               echo "➡️ New branch detected: $branch"
               git checkout -b $branch $UPSTREAM_REMOTE/$branch
-              git push $FORK_REMOTE $branch
+
+              # Check if branch contains workflow files
+              if git ls-tree -r --name-only HEAD | grep -q '^.github/workflows/'; then
+                echo "⚠️ Branch $branch modifies workflow files. Skipping push to avoid permission errors."
+              else
+                git push $FORK_REMOTE $branch
+              fi
+
               git checkout main
               git branch -D $branch
             else
