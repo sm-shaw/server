@@ -1,120 +1,85 @@
-name: Sync New Upstream Branches and Notify
-
-permissions:
-  contents: write
+name: Sync Branches and Trigger Webhook
 
 on:
-  schedule:
-    - cron: '0 2 * * *'  # daily at 2am UTC
   workflow_dispatch:
     inputs:
       webhook_url:
-        description: 'Webhook URL to notify on new branch'
+        description: 'Webhook URL to send POST requests to'
         required: true
 
 jobs:
-  sync:
+  sync-and-webhook:
     runs-on: ubuntu-latest
+    env:
+      UPSTREAM_REPO: mariadb/server
+      FORK_REPO: sm-shaw/server
 
     steps:
-      - name: Checkout your fork
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
+    - name: Checkout fork repo
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ env.FORK_REPO }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
 
-      - name: Setup Git user
-        run: |
-          git config --global user.email "github-actions@github.com"
-          git config --global user.name "GitHub Actions"
+    - name: Set up git remotes
+      run: |
+        git remote add upstream https://github.com/${{ env.UPSTREAM_REPO }}.git
+        git fetch upstream --prune
 
-      - name: Add upstream remote if missing
-        run: |
-          git remote get-url upstream || git remote add upstream https://github.com/MariaDB/server.git
+    - name: Find new branches and sync
+      id: sync_branches
+      run: |
+        # Fetch all branches from upstream and fork
+        git fetch upstream
+        git fetch origin
 
-      - name: Fetch all remotes
-        run: git fetch --all
+        # List all branches on upstream and origin
+        upstream_branches=$(git branch -r | grep upstream/ | sed 's|upstream/||')
+        origin_branches=$(git branch -r | grep origin/ | sed 's|origin/||')
 
-      - name: Sync branches and notify webhook
-        env:
-          WEBHOOK_URL: ${{ github.event.inputs.webhook_url }}
-        run: |
-          set -e
+        webhook_url="${{ github.event.inputs.webhook_url }}"
 
-          echo "DEBUG: Webhook URL is '$WEBHOOK_URL'"
+        send_webhook() {
+          local branch="$1"
+          echo "📡 Sending webhook for refs/heads/$branch"
+          curl -X POST "$webhook_url" \
+            -H "X-GitHub-Event: create" \
+            -H "Content-Type: application/json" \
+            -d '{"ref":"refs/heads/'"$branch"'","ref_type":"branch"}'
+        }
 
-          FORK_REMOTE=origin
-          UPSTREAM_REMOTE=upstream
-
-          # Get branch lists into arrays
-          mapfile -t upstream_branches < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$UPSTREAM_REMOTE)
-          mapfile -t fork_branches < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$FORK_REMOTE)
-
-          DEFAULT_BRANCH=$(git remote show origin | awk '/HEAD branch/ {print $NF}')
-
-          webhook_post() {
-            local ref="$1"
-            local ref_type="branch"
-
-            if [[ -z "$WEBHOOK_URL" ]]; then
-              echo "❌ WEBHOOK_URL is empty — skipping webhook."
-              return
-            fi
-
-            echo "📡 Sending webhook for $ref to $WEBHOOK_URL"
-            if ! curl -X POST -H "X-GitHub-Event: create" -H "Content-Type: application/json" \
-              -d "{\"ref\":\"$ref\", \"ref_type\":\"$ref_type\"}" \
-              "$WEBHOOK_URL"; then
-              echo "⚠️ Failed to send webhook to $WEBHOOK_URL"
-            fi
-          }
-
-          echo "🔄 Checking for new upstream branches to sync..."
-          for branch in "${upstream_branches[@]}"; do
-            # Check if branch exists in fork_branches array
-            branch_found=false
-            for fb in "${fork_branches[@]}"; do
-              if [[ "$fb" == "$branch" ]]; then
-                branch_found=true
-                break
-              fi
-            done
-
-            if ! $branch_found; then
-              echo "➡️ New upstream branch detected: $branch"
-              git checkout -b "$branch" "$UPSTREAM_REMOTE/$branch"
-
-              # Avoid pushing branches that modify workflows to prevent permission issues
-              if git ls-tree -r --name-only HEAD | grep -q '^.github/workflows/'; then
-                echo "⚠️ Branch $branch modifies workflows — skipping push"
-              else
-                if git push "$FORK_REMOTE" "$branch"; then
-                  echo "✅ Pushed $branch to fork"
-                  webhook_post "refs/heads/$branch"
-                else
-                  echo "⚠️ Failed to push $branch"
-                fi
-              fi
-
-              git checkout "$DEFAULT_BRANCH"
+        # Check for new branches on upstream not in origin
+        for branch in $upstream_branches; do
+          if [[ "$branch" == "HEAD" ]]; then
+            continue
+          fi
+          if ! echo "$origin_branches" | grep -qx "$branch"; then
+            echo "➡️ New upstream branch detected: $branch"
+            git checkout -b "$branch" "upstream/$branch"
+            # Skip if branch modifies workflows to avoid infinite loops
+            if git diff --name-only origin/main | grep -qE '\.github/workflows/'; then
+              echo "⚠️ Branch $branch modifies workflows — skipping push"
+              git checkout main
               git branch -D "$branch"
-            else
-              echo "✅ Branch $branch already exists in fork"
+              continue
             fi
-          done
+            git push origin "$branch"
+            send_webhook "$branch"
+            git checkout main
+            git branch -D "$branch"
+          else
+            echo "✅ Branch $branch already exists in fork"
+          fi
+        done
 
-          echo "🔄 Checking for fork-only branches..."
-          for branch in "${fork_branches[@]}"; do
-            # Check if branch exists in upstream_branches array
-            branch_found=false
-            for ub in "${upstream_branches[@]}"; do
-              if [[ "$ub" == "$branch" ]]; then
-                branch_found=true
-                break
-              fi
-            done
-
-            if ! $branch_found; then
-              echo "➡️ Branch $branch exists in fork but not upstream"
-              webhook_post "refs/heads/$branch"
-            fi
-          done
+        # Check for new branches on fork not in upstream (bespoke branches)
+        for branch in $origin_branches; do
+          if [[ "$branch" == "HEAD" ]]; then
+            continue
+          fi
+          if ! echo "$upstream_branches" | grep -qx "$branch"; then
+            echo "➡️ New branch in fork detected: $branch"
+            send_webhook "$branch"
+          fi
+        done
