@@ -1562,7 +1562,8 @@ inline void recv_sys_t::free(const void *data)
 out: the last read valid lsn
 @param[in]	end_lsn		read area end
 @return	whether no invalid blocks (e.g checksum mismatch) were found */
-bool log_t::file::read_log_seg(lsn_t* start_lsn, lsn_t end_lsn)
+bool log_t::file::read_log_seg(lsn_t* start_lsn, lsn_t end_lsn,
+                               lsn_t* backup_last_read)
 {
 	ulint	len;
 	bool success = true;
@@ -1648,11 +1649,19 @@ fail:
 		}
 	}
 
-	if (recv_sys.report(time(NULL))) {
+	bool report_message = recv_sys.report(time(NULL));
+	if (backup_last_read && *backup_last_read == *start_lsn) {
+		report_message= false;
+	}
+
+        if (report_message) {
 		ib::info() << "Read redo log up to LSN=" << *start_lsn;
 		service_manager_extend_timeout(INNODB_EXTEND_TIMEOUT_INTERVAL,
 			"Read redo log up to LSN=" LSN_PF,
 			*start_lsn);
+		if (backup_last_read) {
+			*backup_last_read = *start_lsn;
+		}
 	}
 
 	if (*start_lsn != end_lsn) {
@@ -3312,7 +3321,7 @@ inline bool fil_space_t::is_freed(uint32_t page) noexcept
 
 bool recv_sys_t::report(time_t time)
 {
-  if (time - progress_time < 15)
+  if (time - progress_time < progress_interval)
     return false;
   progress_time= time;
   return true;

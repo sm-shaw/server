@@ -3139,9 +3139,11 @@ static lsn_t xtrabackup_copy_log(lsn_t start_lsn, lsn_t end_lsn, bool last)
 }
 
 /** Copy redo log until the current end of the log is reached
+@param read_lsn last read lsn by this thread
 @param last	whether we are copying the final part of the log
 @return	whether the operation failed */
-static bool xtrabackup_copy_logfile(bool last = false)
+static bool xtrabackup_copy_logfile(lsn_t *read_lsn= nullptr,
+                                    bool last = false)
 {
 	mysql_mutex_assert_owner(&log_sys.mutex);
 
@@ -3166,7 +3168,7 @@ static bool xtrabackup_copy_logfile(bool last = false)
 
 		lsn_t lsn= start_lsn;
 		for (int retries= 0; retries < 100; retries++) {
-			if (log_sys.log.read_log_seg(&lsn, end_lsn)
+			if (log_sys.log.read_log_seg(&lsn, end_lsn, read_lsn)
 			    || lsn != start_lsn) {
 				break;
 			}
@@ -3232,7 +3234,9 @@ static void log_copying_thread()
 {
   my_thread_init();
   mysql_mutex_lock(&log_sys.mutex);
-  while (!xtrabackup_copy_logfile() &&
+  recv_sys.progress_interval= 60;
+  lsn_t last_read_lsn= 0;
+  while (!xtrabackup_copy_logfile(&last_read_lsn) &&
          (!metadata_to_lsn || metadata_to_lsn > log_copy_scanned_lsn))
   {
     timespec abstime;
@@ -4562,7 +4566,7 @@ bool Backup_datasinks::backup_low()
 		stop_backup_threads();
 	}
 
-	if (metadata_to_lsn && xtrabackup_copy_logfile(true)) {
+	if (metadata_to_lsn && xtrabackup_copy_logfile(nullptr, true)) {
 		mysql_mutex_unlock(&log_sys.mutex);
 		ds_close(dst_log_file);
 		dst_log_file = NULL;

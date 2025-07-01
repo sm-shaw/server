@@ -541,8 +541,12 @@ public:
     @param[in,out]	start_lsn	in: read area start,
 					out: the last read valid lsn
     @param[in]		end_lsn		read area end
+    @param[in]		backup_read_lsn	last read lsn by mariabackup during
+					backup process. This is used to
+					display when we can report information
     @return	whether no invalid blocks (e.g checksum mismatch) were found */
-    bool read_log_seg(lsn_t* start_lsn, lsn_t end_lsn);
+    bool read_log_seg(lsn_t* start_lsn, lsn_t end_lsn,
+                      lsn_t* backup_read_lsn= nullptr);
 
     /** Initialize the redo log buffer. */
     void create();

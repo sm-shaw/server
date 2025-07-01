@@ -299,6 +299,8 @@ public:
 				record, or 0 if none was parsed */
 	/** the time when progress was last reported */
 	time_t		progress_time;
+	/** Seconds for printing progress message */
+	uint32_t	progress_interval = 15;
 
   using map = std::map<const page_id_t, page_recv_t,
                        std::less<const page_id_t>,
