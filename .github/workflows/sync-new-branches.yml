@@ -40,6 +40,8 @@ jobs:
         run: |
           set -e
 
+          echo "DEBUG: Webhook URL is '$WEBHOOK_URL'"
+
           FORK_REMOTE=origin
           UPSTREAM_REMOTE=upstream
 
@@ -52,15 +54,18 @@ jobs:
           webhook_post() {
             local ref="$1"
             local ref_type="branch"
+
             if [[ -z "$WEBHOOK_URL" ]]; then
-              echo "ℹ️ No webhook URL provided; skipping webhook."
+              echo "❌ WEBHOOK_URL is empty — skipping webhook."
               return
             fi
 
-            echo "📡 Sending webhook for $ref"
-            curl -X POST -H "X-GitHub-Event: create" -H "Content-Type: application/json" \
+            echo "📡 Sending webhook for $ref to $WEBHOOK_URL"
+            if ! curl -X POST -H "X-GitHub-Event: create" -H "Content-Type: application/json" \
               -d "{\"ref\":\"$ref\", \"ref_type\":\"$ref_type\"}" \
-              "$WEBHOOK_URL"
+              "$WEBHOOK_URL"; then
+              echo "⚠️ Failed to send webhook to $WEBHOOK_URL"
+            fi
           }
 
           echo "🔄 Checking for new upstream branches to sync..."
