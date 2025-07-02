@@ -448,7 +448,11 @@ bool trans_rollback_implicit(THD *thd)
     new transaction implicitly in next statement. It makes the behaviour
     uniform with direct commit and rollback.
   */
-  thd->variables.option_bits&= ~(OPTION_BEGIN | OPTION_BINLOG_THIS_TRX);
+  thd->variables.option_bits&= ~(OPTION_BINLOG_THIS_TRX);
+  XID_STATE &xid_state= thd->transaction->xid_state;
+  if (!xid_state.is_explicit_XA())
+    thd->variables.option_bits&= ~(OPTION_BEGIN);
+
   thd->transaction->all.reset();
 
   /* Rollback should clear transaction_rollback_request flag. */
