@@ -34,39 +34,19 @@ jobs:
       - name: Fetch all remotes
         run: git fetch --all
 
-      - name: Cache upstream branch history
-        uses: actions/cache@v4
-        id: upstream-cache
-        with:
-          path: .github/upstream-branches.txt
-          key: upstream-history-${{ github.run_id }}
-          restore-keys: |
-            upstream-history-
-
       - name: Sync branches and notify webhook
         env:
           WEBHOOK_URL: ${{ github.event.inputs.webhook_url }}
+          FORK_REMOTE: origin
+          UPSTREAM_REMOTE: upstream
         run: |
-          set -euo pipefail
-
-          echo "🔁 Preparing environment..."
-          FORK_REMOTE=origin
-          UPSTREAM_REMOTE=upstream
-          TRACK_FILE=".github/upstream-branches.txt"
-          mkdir -p .github
-          touch "$TRACK_FILE"
-
-          echo "📥 Getting current branch lists..."
+          set -e
+          echo "DEBUG: Webhook URL is '$WEBHOOK_URL'"
+          
           mapfile -t upstream_branches < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$UPSTREAM_REMOTE)
           mapfile -t fork_branches < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$FORK_REMOTE)
-
+          
           DEFAULT_BRANCH=$(git remote show origin | awk '/HEAD branch/ {print $NF}')
-
-          # Load previously known upstream branches into associative array
-          declare -A previous_upstream
-          while IFS= read -r branch; do
-            previous_upstream["$branch"]=1
-          done < "$TRACK_FILE"
 
           webhook_post() {
             local ref="$1"
@@ -85,9 +65,25 @@ jobs:
 
           echo "🔄 Checking for new upstream branches to sync..."
           for branch in "${upstream_branches[@]}"; do
-            if [[ ! " ${fork_branches[*]} " =~ " ${branch} " ]]; then
+            # Skip any upstream branch starting with bb-
+            if [[ "$branch" == bb-* ]]; then
+              echo "⏭️ Skipping upstream bb- branch: $branch"
+              continue
+            fi
+
+            # Check if branch exists in fork_branches array
+            branch_found=false
+            for fb in "${fork_branches[@]}"; do
+              if [[ "$fb" == "$branch" ]]; then
+                branch_found=true
+                break
+              fi
+            done
+
+            if ! $branch_found; then
               echo "➡️ New upstream branch detected: $branch"
               git checkout -b "$branch" "$UPSTREAM_REMOTE/$branch"
+              # Avoid pushing branches that modify workflows to prevent permission issues
               if git ls-tree -r --name-only HEAD | grep -q '^.github/workflows/'; then
                 echo "⚠️ Branch $branch modifies workflows — skipping push"
               else
@@ -105,31 +101,39 @@ jobs:
             fi
           done
 
-          echo "🔁 Updating tracked upstream branch history..."
-          printf "%s\n" "${upstream_branches[@]}" | sort > "$TRACK_FILE"
-
-          echo "🔍 Checking fork-only branches..."
+          echo "🔄 Checking for fork-only branches..."
           for branch in "${fork_branches[@]}"; do
-            if [[ "$branch" == "$DEFAULT_BRANCH" ]]; then
-              echo "ℹ️ Skipping default branch: $branch"
-              continue
+            # Delete fork-only bb-* branches
+            if [[ "$branch" == bb-* ]]; then
+              branch_found=false
+              for ub in "${upstream_branches[@]}"; do
+                if [[ "$ub" == "$branch" ]]; then
+                  branch_found=true
+                  break
+                fi
+              done
+              if ! $branch_found; then
+                echo "🗑️ Deleting fork-only bb- branch: $branch"
+                if git push "$FORK_REMOTE" --delete "$branch"; then
+                  echo "✅ Deleted $branch from fork"
+                else
+                  echo "⚠️ Failed to delete $branch from fork"
+                fi
+                # Skip webhook notification for deleted branches
+                continue
+              fi
             fi
 
-            branch_is_upstream=false
+            # For other fork-only branches notify webhook
+            branch_found=false
             for ub in "${upstream_branches[@]}"; do
               if [[ "$ub" == "$branch" ]]; then
-                branch_is_upstream=true
+                branch_found=true
                 break
               fi
             done
-
-            if ! $branch_is_upstream; then
-              if [[ -z "${previous_upstream["$branch"]+x}" ]]; then
-                echo "🆕 Fork-only branch $branch has never existed upstream — triggering webhook"
-                webhook_post "refs/heads/$branch"
-              else
-                echo "🧹 Deleting stale fork-only branch: $branch"
-                git push "$FORK_REMOTE" --delete "$branch" || echo "⚠️ Failed to delete $branch"
-              fi
+            if ! $branch_found; then
+              echo "➡️ Branch $branch exists in fork but not upstream"
+              webhook_post "refs/heads/$branch"
             fi
           done
