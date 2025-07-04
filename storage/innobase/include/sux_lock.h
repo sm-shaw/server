@@ -185,6 +185,8 @@ public:
   /** Acquire a shared lock */
   inline void s_lock();
   inline void s_lock(const char *file, unsigned line);
+  /** Acquire a shared lock, skipping any spin loop */
+  inline void s_lock_nospin() noexcept;
   /** Acquire an update lock */
   inline void u_lock();
   inline void u_lock(const char *file, unsigned line);
