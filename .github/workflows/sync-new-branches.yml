@@ -35,9 +35,13 @@ jobs:
 
       - name: Sync branches and notify webhook
         env:
-          WEBHOOK_URL: ${{ github.event.inputs.webhook_url }}
+          RAW_WEBHOOK_URL: ${{ github.event.inputs.webhook_url }}
         run: |
-          set -e
+          set -euo pipefail
+
+          # Trim leading/trailing spaces
+          WEBHOOK_URL="$(echo "$RAW_WEBHOOK_URL" | xargs || true)"
+          echo "🔗 Webhook URL: [$WEBHOOK_URL]"
 
           FORK_REMOTE=origin
           UPSTREAM_REMOTE=upstream
@@ -47,6 +51,16 @@ jobs:
           mapfile -t fork_branches < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$FORK_REMOTE)
 
           DEFAULT_BRANCH=$(git remote show origin | awk '/HEAD branch/ {print $NF}')
+          echo "🧭 Default branch is $DEFAULT_BRANCH"
+
+          array_contains() {
+            local needle="$1"
+            shift
+            for item in "$@"; do
+              [[ "$item" == "$needle" ]] && return 0
+            done
+            return 1
+          }
 
           webhook_post() {
             local ref="$1"
@@ -56,20 +70,21 @@ jobs:
               return
             fi
             echo "📡 Sending webhook for $ref to $WEBHOOK_URL"
-            curl -X POST -H "X-GitHub-Event: create" -H "Content-Type: application/json" \
+            curl -s -X POST \
+              -H "X-GitHub-Event: create" \
+              -H "Content-Type: application/json" \
               -d "{\"ref\":\"$ref\", \"ref_type\":\"$ref_type\"}" \
               "$WEBHOOK_URL" || echo "⚠️ Failed to send webhook to $WEBHOOK_URL"
           }
 
           echo "🔄 Checking for new upstream branches to sync..."
           for branch in "${upstream_branches[@]}"; do
-            # Skip bb- branches
-            if [[ "$branch" == bb-* ]]; then
+            [[ "$branch" == bb-* ]] && {
               echo "⏭️ Skipping upstream branch $branch (starts with bb-)"
               continue
-            fi
+            }
 
-            if ! printf '%s\n' "${fork_branches[@]}" | grep -Fxq "$branch"; then
+            if ! array_contains "$branch" "${fork_branches[@]}"; then
               echo "➡️ New upstream branch detected: $branch"
               git checkout -b "$branch" "$UPSTREAM_REMOTE/$branch"
 
@@ -99,7 +114,7 @@ jobs:
               continue
             fi
 
-            if ! printf '%s\n' "${upstream_branches[@]}" | grep -Fxq "$branch"; then
+            if ! array_contains "$branch" "${upstream_branches[@]}"; then
               echo "📍 Branch $branch exists only in fork — notify"
               webhook_post "refs/heads/$branch"
             fi
