@@ -1,44 +1,106 @@
-# ... previous code unchanged ...
+name: Sync New Upstream Branches and Notify
 
-for branch in "${upstream_branches[@]}"; do
-  # Skip bb- branches
-  if [[ "$branch" == bb-* ]]; then
-    echo "⏭️ Skipping upstream branch $branch (starts with bb-)"
-    continue
-  fi
-  # Check if this branch is missing from fork
-  if ! printf '%s\n' "${fork_branches[@]}" | grep -Fxq "$branch" || true; then
-    echo "➡️ New upstream branch detected: $branch"
-    git checkout -b "$branch" "$UPSTREAM_REMOTE/$branch"
-    if git ls-tree -r --name-only HEAD | grep -q '^.github/workflows/'; then
-      echo "⚠️ Branch $branch modifies workflows — skipping push"
-    else
-      if git push "$FORK_REMOTE" "$branch"; then
-        echo "✅ Pushed $branch to fork"
-        webhook_post "refs/heads/$branch"
-      else
-        echo "⚠️ Failed to push $branch"
-      fi
-    fi
-    git checkout "$DEFAULT_BRANCH"
-    git branch -D "$branch"
-  else
-    echo "✅ Branch $branch already exists in fork"
-  fi
-done
+permissions:
+  contents: write
 
-echo "🔄 Checking fork-only branches and cleaning bb-..."
-for branch in "${fork_branches[@]}"; do
-  # Delete local bb- branches
-  if [[ "$branch" == bb-* ]]; then
-    echo "🗑️ Deleting fork-only bb- branch: $branch"
-    git push "$FORK_REMOTE" --delete "$branch" || echo "⚠️ Failed to delete $branch"
-    continue
-  fi
+on:
+  schedule:
+    - cron: '0 2 * * *'  # daily at 2am UTC
+  workflow_dispatch:
+    inputs:
+      webhook_url:
+        description: 'Webhook URL to notify on new branch'
+        required: true
 
-  # Check if it exists in upstream
-  if ! printf '%s\n' "${upstream_branches[@]}" | grep -Fxq "$branch" || true; then
-    echo "📍 Branch $branch exists only in fork — notify"
-    webhook_post "refs/heads/$branch"
-  fi
-done
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout your fork
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Git user
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
+
+      - name: Add upstream remote if missing
+        run: |
+          git remote get-url upstream || git remote add upstream https://github.com/MariaDB/server.git
+
+      - name: Fetch all remotes
+        run: git fetch --all
+
+      - name: Sync branches and notify webhook
+        env:
+          WEBHOOK_URL: ${{ github.event.inputs.webhook_url }}
+        run: |
+          set -e
+
+          FORK_REMOTE=origin
+          UPSTREAM_REMOTE=upstream
+
+          echo "🔍 Listing remote branches..."
+          mapfile -t upstream_branches < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$UPSTREAM_REMOTE)
+          mapfile -t fork_branches < <(git for-each-ref --format='%(refname:strip=3)' refs/remotes/$FORK_REMOTE)
+
+          DEFAULT_BRANCH=$(git remote show origin | awk '/HEAD branch/ {print $NF}')
+
+          webhook_post() {
+            local ref="$1"
+            local ref_type="branch"
+            if [[ -z "$WEBHOOK_URL" ]]; then
+              echo "❌ WEBHOOK_URL is empty — skipping webhook."
+              return
+            fi
+            echo "📡 Sending webhook for $ref to $WEBHOOK_URL"
+            curl -X POST -H "X-GitHub-Event: create" -H "Content-Type: application/json" \
+              -d "{\"ref\":\"$ref\", \"ref_type\":\"$ref_type\"}" \
+              "$WEBHOOK_URL" || echo "⚠️ Failed to send webhook to $WEBHOOK_URL"
+          }
+
+          echo "🔄 Checking for new upstream branches to sync..."
+          for branch in "${upstream_branches[@]}"; do
+            # Skip bb- branches
+            if [[ "$branch" == bb-* ]]; then
+              echo "⏭️ Skipping upstream branch $branch (starts with bb-)"
+              continue
+            fi
+
+            if ! printf '%s\n' "${fork_branches[@]}" | grep -Fxq "$branch"; then
+              echo "➡️ New upstream branch detected: $branch"
+              git checkout -b "$branch" "$UPSTREAM_REMOTE/$branch"
+
+              if git ls-tree -r --name-only HEAD | grep -q '^.github/workflows/'; then
+                echo "⚠️ Branch $branch modifies workflows — skipping push"
+              else
+                if git push "$FORK_REMOTE" "$branch"; then
+                  echo "✅ Pushed $branch to fork"
+                  webhook_post "refs/heads/$branch"
+                else
+                  echo "⚠️ Failed to push $branch"
+                fi
+              fi
+
+              git checkout "$DEFAULT_BRANCH"
+              git branch -D "$branch"
+            else
+              echo "✅ Branch $branch already exists in fork"
+            fi
+          done
+
+          echo "🧹 Checking fork-only branches and cleaning up bb- branches..."
+          for branch in "${fork_branches[@]}"; do
+            if [[ "$branch" == bb-* ]]; then
+              echo "🗑️ Deleting fork-only bb- branch: $branch"
+              git push "$FORK_REMOTE" --delete "$branch" || echo "⚠️ Failed to delete $branch"
+              continue
+            fi
+
+            if ! printf '%s\n' "${upstream_branches[@]}" | grep -Fxq "$branch"; then
+              echo "📍 Branch $branch exists only in fork — notify"
+              webhook_post "refs/heads/$branch"
+            fi
+          done
